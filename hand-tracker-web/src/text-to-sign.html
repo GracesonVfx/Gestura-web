@@ -1,0 +1,398 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Gestura — Text to Sign Animation Studio</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/gsap.min.js"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;700;800&family=Space+Mono:wght@400;700&display=swap');
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #050a14;
+    --surface: #0d1829;
+    --border: #1a2d4a;
+    --cyan: #00e5ff;
+    --violet: #bf5af2;
+    --text: #e8f4ff;
+    --muted: #4a6a8a;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Space Mono', monospace;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 32px 16px;
+    overflow-x: hidden;
+  }
+
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(0,229,255,0.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(0,229,255,0.03) 1px, transparent 1px);
+    background-size: 40px 40px;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  .glow-orb {
+    position: fixed;
+    border-radius: 50%;
+    filter: blur(120px);
+    pointer-events: none;
+    z-index: 0;
+  }
+  .glow-orb.one { width: 500px; height: 500px; background: rgba(0,229,255,0.06); top: -100px; left: -100px; }
+  .glow-orb.two { width: 400px; height: 400px; background: rgba(191,90,242,0.07); bottom: -80px; right: -80px; }
+
+  .wrapper { position: relative; z-index: 1; width: 100%; max-width: 800px; }
+
+  header { text-align: center; margin-bottom: 36px; }
+  header h1 {
+    font-family: 'Syne', sans-serif;
+    font-weight: 800;
+    font-size: clamp(2rem, 5vw, 3.2rem);
+    background: linear-gradient(135deg, var(--cyan), var(--violet));
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    letter-spacing: -1px;
+  }
+  header p {
+    color: var(--muted);
+    font-size: 0.78rem;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    margin-top: 6px;
+  }
+
+  /* Input Panel */
+  .input-panel {
+    background: rgba(30, 41, 59, 0.4);
+    backdrop-filter: blur(16px);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 1.5rem;
+    margin-bottom: 2rem;
+    display: flex;
+    gap: 1rem;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+  }
+
+  .text-input {
+    flex: 1;
+    background: rgba(15, 23, 42, 0.6);
+    border: 1px solid var(--border);
+    color: white;
+    padding: 1rem 1.5rem;
+    border-radius: 8px;
+    font-size: 1.2rem;
+    font-family: 'Space Mono', monospace;
+    outline: none;
+    text-transform: uppercase;
+    transition: border-color 0.3s;
+  }
+  .text-input:focus { border-color: var(--cyan); }
+
+  .play-btn {
+    background: linear-gradient(135deg, var(--cyan), var(--violet));
+    color: #fff;
+    border: none;
+    padding: 0 2rem;
+    border-radius: 8px;
+    font-family: 'Syne', sans-serif;
+    font-weight: 700;
+    font-size: 1.1rem;
+    cursor: pointer;
+    transition: transform 0.2s, opacity 0.2s;
+  }
+  .play-btn:hover { transform: translateY(-2px); opacity: 0.9; }
+  .play-btn:active { transform: translateY(0); }
+
+  /* SVG Panel */
+  .svg-container {
+    aspect-ratio: 4/3;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: radial-gradient(ellipse at 50% 50%, #0d1f38 0%, #050a14 70%);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    position: relative;
+    overflow: hidden;
+    box-shadow: 0 10px 40px rgba(0,0,0,0.5);
+  }
+
+  #hand-svg { width: 85%; height: 85%; overflow: visible; }
+
+  .hand-bone { stroke-linecap: round; stroke-linejoin: round; fill: none; }
+  .finger-bone { stroke: var(--cyan); stroke-width: 3.5; opacity: 0.85; }
+  .palm-bone { stroke: var(--violet); stroke-width: 4; opacity: 0.8; }
+  
+  #current-letter-display {
+    position: absolute;
+    top: 20px;
+    left: 20px;
+    font-family: 'Syne', sans-serif;
+    font-size: 5rem;
+    font-weight: 800;
+    color: rgba(255,255,255,0.1);
+  }
+
+</style>
+</head>
+<body>
+
+<div class="glow-orb one"></div>
+<div class="glow-orb two"></div>
+
+<div class="wrapper">
+  <header>
+    <h1>Text → Sign Studio</h1>
+    <p>GSAP Keyframe Interpolation Demo</p>
+  </header>
+
+  <div class="input-panel">
+    <input type="text" id="text-input" class="text-input" placeholder="Type a word (e.g. AVD O)..." value="ADV O" maxlength="20">
+    <button id="play-btn" class="play-btn">TRANSLATE</button>
+  </div>
+
+  <div class="svg-container">
+    <div id="current-letter-display">IDLE</div>
+    <svg id="hand-svg" viewBox="0 0 400 400">
+      <defs>
+        <filter id="glow-cyan"><feGaussianBlur stdDeviation="3" result="blur"/><feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+        <filter id="glow-violet"><feGaussianBlur stdDeviation="4" result="blur"/><feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+      </defs>
+      <g id="palm-lines" filter="url(#glow-violet)"></g>
+      <g id="finger-lines" filter="url(#glow-cyan)"></g>
+      <g id="joints"></g>
+    </svg>
+  </div>
+</div>
+
+<script>
+// ── 1. Load Real Sequences ───────────────────────────
+let SEQUENCES = {};
+
+// We attempt to load the gesture_sequences.json that the user downloaded and placed in /public
+async function loadSequences() {
+  try {
+    const res = await fetch('/gesture_sequences.json');
+    if (res.ok) {
+      SEQUENCES = await res.json();
+      console.log("Loaded custom gesture sequences:", Object.keys(SEQUENCES));
+    }
+  } catch(e) {
+    console.log("No custom gesture_sequences.json found to load.");
+  }
+}
+loadSequences();
+
+// A generic 'idle' open hand so the SVG has something to start with
+const IDLE_POSE = [
+  {x: 0.5, y: 0.9}, // Wrist
+  {x: 0.4, y: 0.8}, {x: 0.3, y: 0.6}, {x: 0.2, y: 0.5}, {x: 0.1, y: 0.4}, // Thumb
+  {x: 0.4, y: 0.6}, {x: 0.4, y: 0.4}, {x: 0.4, y: 0.2}, {x: 0.4, y: 0.1}, // Index
+  {x: 0.5, y: 0.6}, {x: 0.5, y: 0.35}, {x: 0.5, y: 0.15}, {x: 0.5, y: 0.05}, // Middle
+  {x: 0.6, y: 0.6}, {x: 0.6, y: 0.4}, {x: 0.6, y: 0.2}, {x: 0.6, y: 0.1}, // Ring
+  {x: 0.7, y: 0.65}, {x: 0.7, y: 0.5}, {x: 0.7, y: 0.35}, {x: 0.7, y: 0.25} // Pinky
+];
+
+// ── 2. Rendering Logic ────────────────────────────────────────────────────
+const FINGER_CONNECTIONS = [
+  [0,1],[1,2],[2,3],[3,4],
+  [0,5],[5,6],[6,7],[7,8],
+  [0,9],[9,10],[10,11],[11,12],
+  [0,13],[13,14],[14,15],[15,16],
+  [0,17],[17,18],[18,19],[19,20]
+];
+const PALM_CONNECTIONS = [[0,5],[5,9],[9,13],[13,17],[0,17]];
+const FINGERTIPS = [4,8,12,16,20];
+const PALM_NODES = [0];
+
+const palmLines = document.getElementById('palm-lines');
+const fingerLines = document.getElementById('finger-lines');
+const jointGroup = document.getElementById('joints');
+const letterDisplay = document.getElementById('current-letter-display');
+
+// The active coordinate state that GSAP will mutate
+let currentCoords = JSON.parse(JSON.stringify(IDLE_POSE));
+
+function renderSVG() {
+  palmLines.innerHTML = '';
+  fingerLines.innerHTML = '';
+  jointGroup.innerHTML = '';
+
+  const svgW = 400; const svgH = 400;
+  // Convert 0-1 logic to SVG coords (mirrored)
+  const lm2svg = (lm) => [(1 - lm.x) * svgW, lm.y * svgH];
+  
+  const makeSvgEl = (tag, attrs) => {
+    const el = document.createElementNS('http://www.w3.org/2000/svg', tag);
+    for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v);
+    return el;
+  };
+
+  // Palm
+  PALM_CONNECTIONS.forEach(([a, b]) => {
+    const [x1,y1] = lm2svg(currentCoords[a]);
+    const [x2,y2] = lm2svg(currentCoords[b]);
+    palmLines.appendChild(makeSvgEl('line', { x1, y1, x2, y2, class: 'hand-bone palm-bone' }));
+  });
+
+  // Fingers
+  FINGER_CONNECTIONS.forEach(([a, b]) => {
+    const [x1,y1] = lm2svg(currentCoords[a]);
+    const [x2,y2] = lm2svg(currentCoords[b]);
+    fingerLines.appendChild(makeSvgEl('line', { x1, y1, x2, y2, class: 'hand-bone finger-bone' }));
+  });
+
+  // Joints
+  currentCoords.forEach((lm, i) => {
+    const [cx, cy] = lm2svg(lm);
+    const isTip = FINGERTIPS.includes(i);
+    const isPalm = PALM_NODES.includes(i);
+    const r = isTip ? 7 : isPalm ? 6 : 4.5;
+    const fill = isTip ? '#ffffff' : isPalm ? '#bf5af2' : '#00e5ff';
+    const filter = isTip ? 'url(#glow-cyan)' : '';
+    jointGroup.appendChild(makeSvgEl('circle', { cx, cy, r, fill, filter, opacity: 0.95 }));
+  });
+}
+
+// Initial Render
+renderSVG();
+
+// ── 3. Animation Engine (GSAP) ────────────────────────────────────────────
+
+function animateToKeyframeOrSequence(targetLetter) {
+  return new Promise(resolve => {
+    // Check if we have data for this word/letter
+    const data = SEQUENCES[targetLetter];
+    
+    if (!data) {
+        // If no data, just show the letter and wait shortly
+        letterDisplay.innerText = targetLetter + " (?)";
+        setTimeout(resolve, 800);
+        return;
+    }
+
+    letterDisplay.innerText = targetLetter;
+
+    // If it's a sequence of frames (which our new data collector makes!)
+    if (Array.isArray(data) && Array.isArray(data[0])) {
+        // Create a GSAP Timeline to play through the frames sequentially
+        const tl = gsap.timeline({ onUpdate: renderSVG, onComplete: resolve });
+        
+        let previousTargetTime = 0;
+        data.forEach((frameCoords, index) => {
+            // We want each frame to take a small duration. Instead of queueing 21 separate tweens per frame,
+            // we start all 21 tweens at the "same time" inside the timeline.
+            const FRAME_TIME = 0.15; // Speed of animation between subframes
+            
+            frameCoords.forEach((point, i) => {
+               tl.to(currentCoords[i], {
+                  x: point.x,
+                  y: point.y,
+                  duration: FRAME_TIME,
+                  ease: "none"
+               }, previousTargetTime); // Insert all 21 points exactly at `previousTargetTime`
+            });
+            
+            previousTargetTime += FRAME_TIME; 
+        });
+    } 
+    // Fallback if data was just a single array of 21 points (like the old static mode)
+    else if (Array.isArray(data) && data.length === 21) {
+        
+        // We can't do a single gsap.to on the outer array easily. Tween the points!
+        let completedTweens = 0;
+        data.forEach((point, i) => {
+            gsap.to(currentCoords[i], {
+                x: point.x,
+                y: point.y,
+                duration: 0.4,
+                ease: "power2.inOut",
+                onUpdate: renderSVG,
+                onComplete: () => {
+                    completedTweens++;
+                    if (completedTweens === 21) resolve();
+                }
+            });
+        });
+    } else {
+        resolve(); // Malformed data
+    }
+  });
+}
+
+// Helper to return to idle
+function animateToIdle() {
+    return new Promise(resolve => {
+        let completedTweens = 0;
+        IDLE_POSE.forEach((point, i) => {
+            gsap.to(currentCoords[i], {
+                x: point.x,
+                y: point.y,
+                duration: 0.5,
+                ease: "power2.out",
+                onUpdate: renderSVG,
+                onComplete: () => {
+                   completedTweens++;
+                   if (completedTweens === 21) resolve();
+                }
+            });
+        });
+    });
+}
+
+document.getElementById('play-btn').addEventListener('click', async () => {
+  const text = document.getElementById('text-input').value.toUpperCase();
+  
+  if (Object.keys(SEQUENCES).length === 0) {
+      alert("No sequences loaded! Please use the Data Collector to record a sequence, download 'gesture_sequences.json', and place it in the public folder!");
+      return;
+  }
+  
+  document.getElementById('play-btn').disabled = true;
+
+  // Split input into words
+  const words = text.split(" ");
+
+  for (let w = 0; w < words.length; w++) {
+      const word = words[w];
+      if (!word) continue;
+      
+      // If the word exists as a full sequence (e.g. THANK_YOU), play that
+      if (SEQUENCES[word]) {
+          await animateToKeyframeOrSequence(word);
+      } 
+      // Otherwise, assume we need to spell it out letter by letter
+      else {
+          for (let i = 0; i < word.length; i++) {
+            await animateToKeyframeOrSequence(word[i]);
+            await new Promise(r => setTimeout(r, 200)); 
+          }
+      }
+      
+      // Pause between words
+      await animateToIdle();
+      await new Promise(r => setTimeout(r, 300));
+  }
+  
+  letterDisplay.innerText = "DONE";
+  document.getElementById('play-btn').disabled = false;
+});
+
+</script>
+</body>
+</html>

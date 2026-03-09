@@ -1,0 +1,450 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Gestura — 3D Text to Sign Studio</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/gsap.min.js"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;700;800&family=Space+Mono:wght@400;700&display=swap');
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #050a14;
+    --surface: #0d1829;
+    --border: #1a2d4a;
+    --cyan: #00e5ff;
+    --violet: #bf5af2;
+    --text: #e8f4ff;
+    --muted: #4a6a8a;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Space Mono', monospace;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 32px 16px;
+    overflow-x: hidden;
+  }
+
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(0,229,255,0.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(0,229,255,0.03) 1px, transparent 1px);
+    background-size: 40px 40px;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  .glow-orb {
+    position: fixed;
+    border-radius: 50%;
+    filter: blur(120px);
+    pointer-events: none;
+    z-index: 0;
+  }
+  .glow-orb.one { width: 500px; height: 500px; background: rgba(0,229,255,0.06); top: -100px; left: -100px; }
+  .glow-orb.two { width: 400px; height: 400px; background: rgba(191,90,242,0.07); bottom: -80px; right: -80px; }
+
+  .wrapper { position: relative; z-index: 1; width: 100%; max-width: 900px; }
+
+  header { text-align: center; margin-bottom: 24px; }
+  header h1 {
+    font-family: 'Syne', sans-serif;
+    font-weight: 800;
+    font-size: clamp(2rem, 5vw, 3.2rem);
+    background: linear-gradient(135deg, var(--cyan), var(--violet));
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    letter-spacing: -1px;
+  }
+  header p {
+    color: var(--muted);
+    font-size: 0.78rem;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    margin-top: 6px;
+  }
+
+  .input-panel {
+    background: rgba(30, 41, 59, 0.4);
+    backdrop-filter: blur(16px);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 1.5rem;
+    margin-bottom: 1.5rem;
+    display: flex;
+    gap: 1rem;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+  }
+
+  .text-input {
+    flex: 1;
+    background: rgba(15, 23, 42, 0.6);
+    border: 1px solid var(--border);
+    color: white;
+    padding: 1rem 1.5rem;
+    border-radius: 8px;
+    font-size: 1.2rem;
+    font-family: 'Space Mono', monospace;
+    outline: none;
+    text-transform: uppercase;
+    transition: border-color 0.3s;
+  }
+  .text-input:focus { border-color: var(--cyan); }
+
+  .play-btn {
+    background: linear-gradient(135deg, var(--cyan), var(--violet));
+    color: #fff;
+    border: none;
+    padding: 0 2rem;
+    border-radius: 8px;
+    font-family: 'Syne', sans-serif;
+    font-weight: 700;
+    font-size: 1.1rem;
+    cursor: pointer;
+    transition: transform 0.2s, opacity 0.2s;
+  }
+  .play-btn:hover { transform: translateY(-2px); opacity: 0.9; }
+
+  /* 3D Panel */
+  .canvas-container {
+    width: 100%;
+    aspect-ratio: 16/9;
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    position: relative;
+    overflow: hidden;
+    box-shadow: 0 10px 40px rgba(0,0,0,0.5);
+    background: linear-gradient(180deg, #111a2a 0%, #050a14 100%);
+  }
+
+  #canvas3d {
+    width: 100%;
+    height: 100%;
+    display: block;
+  }
+
+  #current-letter-display {
+    position: absolute;
+    top: 20px;
+    left: 20px;
+    font-family: 'Syne', sans-serif;
+    font-size: 4rem;
+    font-weight: 800;
+    color: rgba(255,255,255,0.7);
+    text-shadow: 0 4px 15px rgba(0,229,255,0.4);
+    z-index: 10;
+  }
+
+  .status-badge {
+    position: absolute;
+    top: 20px;
+    right: 20px;
+    background: rgba(0,0,0,0.5);
+    border: 1px solid var(--border);
+    padding: 8px 16px;
+    border-radius: 20px;
+    font-size: 0.8rem;
+    color: var(--cyan);
+    z-index: 10;
+  }
+
+</style>
+</head>
+<body>
+
+<div class="glow-orb one"></div>
+<div class="glow-orb two"></div>
+
+<div class="wrapper">
+  <header>
+    <h1>3D Sign Studio</h1>
+    <p>GLTF + Three.js GSAP Interpolation</p>
+  </header>
+
+  <div class="input-panel">
+    <input type="text" id="text-input" class="text-input" placeholder="Type a word..." value="HELLO" maxlength="30">
+    <button id="play-btn" class="play-btn">TRANSLATE 3D</button>
+  </div>
+
+  <div class="canvas-container">
+    <div id="current-letter-display">READY</div>
+    <div class="status-badge" id="model-status">Loading Model...</div>
+    <canvas id="canvas3d"></canvas>
+  </div>
+</div>
+
+<script type="module">
+import * as THREE from 'https://esm.sh/three@0.160.0';
+import { GLTFLoader } from 'https://esm.sh/three@0.160.0/examples/jsm/loaders/GLTFLoader.js';
+import { OrbitControls } from 'https://esm.sh/three@0.160.0/examples/jsm/controls/OrbitControls.js';
+
+// ── 1. Setup Three.js Scene ───────────────────────────
+const canvas = document.getElementById('canvas3d');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+renderer.setSize(canvas.clientWidth, canvas.clientHeight);
+renderer.setPixelRatio(window.devicePixelRatio);
+
+const scene = new THREE.Scene();
+scene.fog = new THREE.FogExp2(0x050a14, 0.05);
+
+const camera = new THREE.PerspectiveCamera(45, canvas.clientWidth / canvas.clientHeight, 0.1, 100);
+camera.position.set(0, 0, 15);
+
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.dampingFactor = 0.05;
+
+// Lights
+const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+scene.add(ambientLight);
+
+const dirLight = new THREE.DirectionalLight(0x00e5ff, 2);
+dirLight.position.set(5, 5, 5);
+scene.add(dirLight);
+
+const dirLight2 = new THREE.DirectionalLight(0xbf5af2, 2);
+dirLight2.position.set(-5, -5, 5);
+scene.add(dirLight2);
+
+// ── 2. Load Sequence Data ───────────────────────────
+let SEQUENCES = {};
+const IDLE_POSE = [
+  {x: 0.5, y: 0.9}, // Wrist
+  {x: 0.4, y: 0.8}, {x: 0.3, y: 0.6}, {x: 0.2, y: 0.5}, {x: 0.1, y: 0.4}, // Thumb
+  {x: 0.4, y: 0.6}, {x: 0.4, y: 0.4}, {x: 0.4, y: 0.2}, {x: 0.4, y: 0.1}, // Index
+  {x: 0.5, y: 0.6}, {x: 0.5, y: 0.35}, {x: 0.5, y: 0.15}, {x: 0.5, y: 0.05}, // Middle
+  {x: 0.6, y: 0.6}, {x: 0.6, y: 0.4}, {x: 0.6, y: 0.2}, {x: 0.6, y: 0.1}, // Ring
+  {x: 0.7, y: 0.65}, {x: 0.7, y: 0.5}, {x: 0.7, y: 0.35}, {x: 0.7, y: 0.25} // Pinky
+];
+let currentCoords = JSON.parse(JSON.stringify(IDLE_POSE));
+
+async function loadSequences() {
+  try {
+    const res = await fetch('/gesture_sequences.json');
+    if (res.ok) {
+      SEQUENCES = await res.json();
+      console.log("Loaded JSON:", Object.keys(SEQUENCES));
+    }
+  } catch(e) { console.warn("No sequence JSON found."); }
+}
+loadSequences();
+
+// ── 3. Load GLTF & Bind Bones ───────────────────────────
+let riggedHand = null;
+let handBones = []; 
+let pointDummies = []; // We will place 21 invisible target spheres here
+
+// Setup Dummies
+for (let i = 0; i < 21; i++) {
+    const dummy = new THREE.Mesh(
+        new THREE.SphereGeometry(0.1, 8, 8),
+        new THREE.MeshBasicMaterial({ color: i === 0 ? 0xff0000 : 0x00e5ff, visible: false })
+    );
+    scene.add(dummy);
+    pointDummies.push(dummy);
+}
+
+const loader = new GLTFLoader();
+loader.load('/rigged_hand.glb', (gltf) => {
+    riggedHand = gltf.scene;
+    
+    // Scale and center the model down
+    riggedHand.scale.set(10, 10, 10);
+    riggedHand.position.set(0, -5, 0); 
+    scene.add(riggedHand);
+
+    // Find all bones recursively
+    let boneNames = [];
+    riggedHand.traverse((child) => {
+        if (child.isBone) {
+            handBones.push(child);
+            boneNames.push(child.name);
+        }
+    });
+
+    console.log("Found Bones:", handBones.length);
+    document.getElementById('model-status').innerText = `3D Model Loaded (${handBones.length} Bones)`;
+    document.getElementById('model-status').style.color = 'var(--cyan)';
+
+    // Dump bone names to the screen so we can see what the model uses!
+    const debugDiv = document.createElement('div');
+    debugDiv.style.position = 'absolute';
+    debugDiv.style.top = '60px';
+    debugDiv.style.right = '20px';
+    debugDiv.style.width = '300px';
+    debugDiv.style.height = '400px';
+    debugDiv.style.overflowY = 'scroll';
+    debugDiv.style.background = 'rgba(0,0,0,0.8)';
+    debugDiv.style.color = '#fff';
+    debugDiv.style.padding = '10px';
+    debugDiv.style.fontFamily = 'monospace';
+    debugDiv.style.fontSize = '10px';
+    debugDiv.style.zIndex = '100';
+    debugDiv.innerHTML = '<b>Bone Hierarchy:</b><br/>' + boneNames.join('<br/>');
+    document.querySelector('.canvas-container').appendChild(debugDiv);
+
+}, undefined, (error) => {
+    console.error(error);
+    document.getElementById('model-status').innerText = "Failed to load rigged_hand.glb";
+    document.getElementById('model-status').style.color = "red";
+});
+
+// Convert 0-1 coordinates into -10 to 10 3D world space coordinates
+function updateDummiesFromCoords() {
+    const SCALE = 12;
+    for (let i = 0; i < 21; i++) {
+        // Mirrored X and Inverted Y to match ThreeJS coordinate system
+        const worldX = -(currentCoords[i].x - 0.5) * SCALE;
+        const worldY = -(currentCoords[i].y - 0.5) * SCALE;
+        const worldZ = 0; // Flat Z since our JSON only recorded X and Y
+        
+        pointDummies[i].position.set(worldX, worldY, worldZ);
+    }
+}
+
+// Map the bones to follow the dummies!
+function mapBonesToDummies() {
+    // TEMPORARILY DISABLED
+    // Blindly mapping indices 0-21 on a 69-bone armature causes a collapsed mesh.
+    // We need to parse the bone names and explicitly map them to MediaPipe index targets.
+}
+
+// ── 4. Render Loop ───────────────────────────
+function animate() {
+    requestAnimationFrame(animate);
+    controls.update();
+    
+    // 1. Position invisible dummies according to the GSAP tweened `currentCoords`
+    updateDummiesFromCoords();
+    
+    // 2. Snap the GLTF Bones to those Dummies!
+    if (riggedHand) {
+        mapBonesToDummies();
+    }
+    
+    renderer.render(scene, camera);
+}
+animate();
+
+// ── 5. GSAP Animation Logic (Identical to SVG) ───────────────────────────
+const letterDisplay = document.getElementById('current-letter-display');
+
+function animateToSequence(targetLetter) {
+  return new Promise(resolve => {
+    const data = SEQUENCES[targetLetter];
+    
+    if (!data) {
+        letterDisplay.innerText = targetLetter + " (?)";
+        setTimeout(resolve, 800);
+        return;
+    }
+
+    letterDisplay.innerText = targetLetter;
+
+    if (Array.isArray(data) && Array.isArray(data[0])) {
+        const tl = gsap.timeline({ onComplete: resolve });
+        let previousTargetTime = 0;
+        
+        data.forEach((frameCoords) => {
+            const FRAME_TIME = 0.15;
+            frameCoords.forEach((point, i) => {
+               tl.to(currentCoords[i], {
+                  x: point.x,
+                  y: point.y,
+                  duration: FRAME_TIME,
+                  ease: "none"
+               }, previousTargetTime);
+            });
+            previousTargetTime += FRAME_TIME; 
+        });
+    } 
+    else if (Array.isArray(data) && data.length === 21) {
+        let completedTweens = 0;
+        data.forEach((point, i) => {
+            gsap.to(currentCoords[i], {
+                x: point.x,
+                y: point.y,
+                duration: 0.4,
+                ease: "power2.inOut",
+                onComplete: () => {
+                    completedTweens++;
+                    if (completedTweens === 21) resolve();
+                }
+            });
+        });
+    } else {
+        resolve(); 
+    }
+  });
+}
+
+function animateToIdle() {
+    return new Promise(resolve => {
+        let completedTweens = 0;
+        IDLE_POSE.forEach((point, i) => {
+            gsap.to(currentCoords[i], {
+                x: point.x,
+                y: point.y,
+                duration: 0.5,
+                ease: "power2.out",
+                onComplete: () => {
+                   completedTweens++;
+                   if (completedTweens === 21) resolve();
+                }
+            });
+        });
+    });
+}
+
+document.getElementById('play-btn').addEventListener('click', async () => {
+  const text = document.getElementById('text-input').value.toUpperCase();
+  
+  if (Object.keys(SEQUENCES).length === 0) {
+      alert("No sequences loaded! Use the Data Collector, download 'gesture_sequences.json', and place it in 'public'.");
+      return;
+  }
+  
+  document.getElementById('play-btn').disabled = true;
+
+  const words = text.split(" ");
+  for (let w = 0; w < words.length; w++) {
+      const word = words[w];
+      if (!word) continue;
+      
+      if (SEQUENCES[word]) {
+          await animateToSequence(word);
+      } else {
+          for (let i = 0; i < word.length; i++) {
+            await animateToSequence(word[i]);
+            await new Promise(r => setTimeout(r, 200)); 
+          }
+      }
+      await animateToIdle();
+      await new Promise(r => setTimeout(r, 300));
+  }
+  
+  letterDisplay.innerText = "DONE";
+  document.getElementById('play-btn').disabled = false;
+});
+
+// Handle resize
+window.addEventListener('resize', () => {
+    camera.aspect = canvas.clientWidth / canvas.clientHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(canvas.clientWidth, canvas.clientHeight);
+});
+
+</script>
+</body>
+</html>

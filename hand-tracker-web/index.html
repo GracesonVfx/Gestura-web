@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Hand Tracking - Powered by AI</title>
+    <!-- Use a premium font like Inter -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/style.css">
+  </head>
+  <body>
+    <div id="app">
+      <!-- Background elements for visual flair -->
+      <div class="blob blob-1"></div>
+      <div class="blob blob-2"></div>
+      
+      <main class="glass-container">
+        <header>
+          <h1>Gestura Tracking</h1>
+          <p>Real-time Hand Pose Estimation</p>
+        </header>
+
+        <section class="camera-section">
+          <div class="video-container">
+            <video id="webcam" autoplay playsinline></video>
+            <canvas id="output_canvas" class="output_canvas"></canvas>
+            
+            <!-- Translation overlay -->
+            <div id="translation-overlay" class="translation-overlay">
+              <span id="prediction-text">...</span>
+            </div>
+
+            <div id="loading" class="overlay-state active">
+              <div class="spinner"></div>
+              <p>Initializing AI Model...</p>
+            </div>
+            
+            <div id="permission-request" class="overlay-state">
+              <p>Please grant webcam access to start tracking.</p>
+              <button id="webcamButton" class="ds-action-btn">Enable Camera</button>
+            </div>
+          </div>
+        </section>
+
+        <footer>
+          <div class="status-indicator">
+            <span class="pulse-dot"></span>
+            <span id="status-text">Waiting for camera...</span>
+          </div>
+        </footer>
+
+        <!-- Data Collection Panel -->
+        <section class="data-collection-panel glass-container-small">
+          <h3>Training Data Collector</h3>
+          <p>Since MediaPipe Python isn't available on Python 3.13, you can collect your landmarks right here in the browser!</p>
+          <div class="collection-controls">
+            <input type="text" id="label-input" placeholder="Sign (A or HELLO)" class="ds-input" style="width: 160px;">
+            <button id="record-btn" class="ds-action-btn small-btn">Record CSV (200 frames)</button>
+            <button id="record-json-btn" class="ds-action-btn small-btn" style="background: linear-gradient(135deg, #0ea5e9 0%, #10b981 100%);">Record JSON Sequence</button>
+            <button id="cancel-btn" class="ds-action-btn small-btn" style="background: #ef4444; display: none;">Cancel</button>
+            <button id="download-btn" class="ds-action-btn small-btn secondary-btn" disabled>Download Data</button>
+          </div>
+          <p id="collection-status" class="collection-status">Ready to record.</p>
+        </section>
+      </main>
+    </div>
+    <script type="module" src="/main.js"></script>
+  </body>
+</html>

@@ -1,0 +1,699 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Gestura — SVG Hand Animation</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/gsap.min.js"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;700;800&family=Space+Mono:wght@400;700&display=swap');
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #050a14;
+    --surface: #0d1829;
+    --border: #1a2d4a;
+    --cyan: #00e5ff;
+    --violet: #bf5af2;
+    --green: #30d158;
+    --text: #e8f4ff;
+    --muted: #4a6a8a;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Space Mono', monospace;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 32px 16px;
+    overflow-x: hidden;
+  }
+
+  /* Animated background grid */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(0,229,255,0.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(0,229,255,0.03) 1px, transparent 1px);
+    background-size: 40px 40px;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  .glow-orb {
+    position: fixed;
+    border-radius: 50%;
+    filter: blur(120px);
+    pointer-events: none;
+    z-index: 0;
+  }
+  .glow-orb.one { width: 500px; height: 500px; background: rgba(0,229,255,0.06); top: -100px; left: -100px; }
+  .glow-orb.two { width: 400px; height: 400px; background: rgba(191,90,242,0.07); bottom: -80px; right: -80px; }
+
+  .wrapper { position: relative; z-index: 1; width: 100%; max-width: 1100px; }
+
+  header {
+    text-align: center;
+    margin-bottom: 36px;
+  }
+  header h1 {
+    font-family: 'Syne', sans-serif;
+    font-weight: 800;
+    font-size: clamp(2rem, 5vw, 3.2rem);
+    background: linear-gradient(135deg, var(--cyan), var(--violet));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    letter-spacing: -1px;
+  }
+  header p {
+    color: var(--muted);
+    font-size: 0.78rem;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    margin-top: 6px;
+  }
+
+  .layout {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+  }
+  @media (max-width: 720px) { .layout { grid-template-columns: 1fr; } }
+
+  .panel {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    overflow: hidden;
+    position: relative;
+  }
+
+  .panel-header {
+    padding: 12px 18px;
+    border-bottom: 1px solid var(--border);
+    font-size: 0.7rem;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--muted);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .panel-header .dot {
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: var(--cyan);
+    box-shadow: 0 0 8px var(--cyan);
+    animation: pulse 1.8s ease-in-out infinite;
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.4; transform: scale(0.7); }
+  }
+
+  /* Camera feed */
+  .camera-container { position: relative; aspect-ratio: 4/3; background: #000; }
+  #video {
+    width: 100%; height: 100%;
+    object-fit: cover;
+    transform: scaleX(-1);
+    display: block;
+  }
+  #landmark-canvas {
+    position: absolute; inset: 0;
+    width: 100%; height: 100%;
+    transform: scaleX(-1);
+    pointer-events: none;
+  }
+
+  /* SVG Animation panel */
+  .svg-container {
+    aspect-ratio: 4/3;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: radial-gradient(ellipse at 50% 50%, #0d1f38 0%, #050a14 70%);
+    position: relative;
+    overflow: hidden;
+  }
+
+  #hand-svg {
+    width: 85%;
+    height: 85%;
+    overflow: visible;
+  }
+
+  /* SVG hand parts */
+  .hand-bone {
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    fill: none;
+    transition: d 0.05s ease;
+  }
+  .finger-bone { stroke: var(--cyan); stroke-width: 3; opacity: 0.85; }
+  .palm-bone { stroke: var(--violet); stroke-width: 3.5; opacity: 0.8; }
+  .knuckle {
+    fill: var(--cyan);
+    filter: drop-shadow(0 0 5px var(--cyan));
+    transition: cx 0.05s, cy 0.05s;
+  }
+  .fingertip {
+    fill: #fff;
+    filter: drop-shadow(0 0 8px var(--cyan));
+  }
+  .palm-node {
+    fill: var(--violet);
+    filter: drop-shadow(0 0 6px var(--violet));
+  }
+
+  /* Trail effect */
+  .trail-dot {
+    fill: var(--cyan);
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  /* Gesture badge */
+  #gesture-badge {
+    position: absolute;
+    top: 14px; left: 50%;
+    transform: translateX(-50%);
+    background: rgba(0,229,255,0.12);
+    border: 1px solid rgba(0,229,255,0.3);
+    border-radius: 999px;
+    padding: 5px 16px;
+    font-size: 0.7rem;
+    letter-spacing: 0.15em;
+    color: var(--cyan);
+    text-transform: uppercase;
+    opacity: 0;
+    transition: opacity 0.3s;
+  }
+  #gesture-badge.visible { opacity: 1; }
+
+  /* Stats row */
+  .stats-row {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+    margin-top: 16px;
+  }
+  .stat-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 14px;
+    text-align: center;
+  }
+  .stat-label {
+    font-size: 0.62rem;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 4px;
+  }
+  .stat-value {
+    font-family: 'Syne', sans-serif;
+    font-size: 1.4rem;
+    font-weight: 700;
+    color: var(--cyan);
+  }
+
+  /* Status bar */
+  .status-bar {
+    margin-top: 16px;
+    padding: 10px 16px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    font-size: 0.7rem;
+    letter-spacing: 0.12em;
+    color: var(--muted);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .status-dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--muted);
+    flex-shrink: 0;
+  }
+  .status-dot.active { background: var(--green); box-shadow: 0 0 8px var(--green); }
+  .status-dot.error { background: #ff453a; }
+
+  /* Permission button */
+  #start-btn {
+    display: block;
+    margin: 20px auto 0;
+    padding: 14px 32px;
+    background: linear-gradient(135deg, var(--cyan), var(--violet));
+    border: none;
+    border-radius: 10px;
+    color: #fff;
+    font-family: 'Syne', sans-serif;
+    font-weight: 700;
+    font-size: 0.9rem;
+    letter-spacing: 0.05em;
+    cursor: pointer;
+    transition: opacity 0.2s, transform 0.2s;
+  }
+  #start-btn:hover { opacity: 0.85; transform: translateY(-2px); }
+  #start-btn:active { transform: translateY(0); }
+  #start-btn.hidden { display: none; }
+
+  /* Idle placeholder */
+  #svg-placeholder {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    color: var(--muted);
+    font-size: 0.72rem;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    pointer-events: none;
+    transition: opacity 0.4s;
+  }
+  #svg-placeholder.hidden { opacity: 0; }
+  .idle-icon {
+    font-size: 3rem;
+    opacity: 0.25;
+    animation: float 3s ease-in-out infinite;
+  }
+  @keyframes float {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-10px); }
+  }
+
+  /* Color mode toggle */
+  .color-modes {
+    position: absolute;
+    bottom: 12px; right: 12px;
+    display: flex;
+    gap: 6px;
+  }
+  .mode-btn {
+    width: 20px; height: 20px;
+    border-radius: 50%;
+    border: 2px solid transparent;
+    cursor: pointer;
+    transition: border-color 0.2s, transform 0.2s;
+  }
+  .mode-btn:hover { transform: scale(1.2); }
+  .mode-btn.active { border-color: #fff; }
+  .mode-btn.cyan { background: var(--cyan); }
+  .mode-btn.violet { background: var(--violet); }
+  .mode-btn.green { background: var(--green); }
+  .mode-btn.fire { background: linear-gradient(135deg, #ff6b00, #ff453a); }
+</style>
+</head>
+<body>
+
+<div class="glow-orb one"></div>
+<div class="glow-orb two"></div>
+
+<div class="wrapper">
+  <header>
+    <h1>Gestura SVG</h1>
+    <p>Real-time Hand Tracking → SVG Animation</p>
+  </header>
+
+  <div class="layout">
+    <!-- Camera Panel -->
+    <div class="panel">
+      <div class="panel-header">
+        <div class="dot" id="cam-dot" style="background:var(--muted);box-shadow:none"></div>
+        Camera Feed
+      </div>
+      <div class="camera-container">
+        <video id="video" autoplay muted playsinline></video>
+        <canvas id="landmark-canvas"></canvas>
+      </div>
+    </div>
+
+    <!-- SVG Panel -->
+    <div class="panel">
+      <div class="panel-header">
+        <div class="dot"></div>
+        SVG Animation
+      </div>
+      <div class="svg-container">
+        <div id="svg-placeholder">
+          <div class="idle-icon">🖐</div>
+          Waiting for hand...
+        </div>
+        <div id="gesture-badge">Open Hand</div>
+
+        <svg id="hand-svg" viewBox="0 0 400 400">
+          <defs>
+            <filter id="glow-cyan">
+              <feGaussianBlur stdDeviation="3" result="blur"/>
+              <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+            </filter>
+            <filter id="glow-violet">
+              <feGaussianBlur stdDeviation="4" result="blur"/>
+              <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+            </filter>
+          </defs>
+
+          <!-- Palm connections -->
+          <g id="palm-lines" filter="url(#glow-violet)"></g>
+          <!-- Finger bones -->
+          <g id="finger-lines" filter="url(#glow-cyan)"></g>
+          <!-- Trail -->
+          <g id="trails"></g>
+          <!-- Joints -->
+          <g id="joints"></g>
+        </svg>
+
+        <div class="color-modes">
+          <div class="mode-btn cyan active" data-mode="cyan" title="Cyan"></div>
+          <div class="mode-btn violet" data-mode="violet" title="Violet"></div>
+          <div class="mode-btn green" data-mode="green" title="Green"></div>
+          <div class="mode-btn fire" data-mode="fire" title="Fire"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Stats -->
+  <div class="stats-row">
+    <div class="stat-card">
+      <div class="stat-label">Fingers Up</div>
+      <div class="stat-value" id="stat-fingers">–</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Gesture</div>
+      <div class="stat-value" id="stat-gesture" style="font-size:1rem">–</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">FPS</div>
+      <div class="stat-value" id="stat-fps">–</div>
+    </div>
+  </div>
+
+  <div class="status-bar">
+    <div class="status-dot" id="status-dot"></div>
+    <span id="status-text">Click "Start Camera" to begin hand tracking</span>
+  </div>
+
+  <button id="start-btn">Start Camera</button>
+</div>
+
+<!-- MediaPipe -->
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1646424915/hands.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils@0.3.1640029074/camera_utils.js" crossorigin="anonymous"></script>
+
+<script>
+// ── Config ──────────────────────────────────────────────────────────────
+const FINGER_CONNECTIONS = [
+  [0,1],[1,2],[2,3],[3,4],       // thumb
+  [0,5],[5,6],[6,7],[7,8],       // index
+  [0,9],[9,10],[10,11],[11,12],  // middle
+  [0,13],[13,14],[14,15],[15,16],// ring
+  [0,17],[17,18],[18,19],[19,20] // pinky
+];
+const PALM_CONNECTIONS = [[0,5],[5,9],[9,13],[13,17],[0,17]];
+const FINGERTIPS = [4,8,12,16,20];
+const KNUCKLES = [1,2,3,5,6,7,9,10,11,13,14,15,17,18,19];
+const PALM_NODES = [0];
+
+const COLOR_MODES = {
+  cyan:   { finger: '#00e5ff', palm: '#bf5af2', tip: '#ffffff', node: '#00e5ff' },
+  violet: { finger: '#bf5af2', palm: '#ff6cef', tip: '#ffd6ff', node: '#bf5af2' },
+  green:  { finger: '#30d158', palm: '#00e5ff', tip: '#ffffff', node: '#30d158' },
+  fire:   { finger: '#ff9f0a', palm: '#ff453a', tip: '#fff5b0', node: '#ff6b00' }
+};
+
+let currentMode = 'cyan';
+let lastFrameTime = performance.now();
+let frameCount = 0;
+let fpsDisplay = 0;
+let handDetected = false;
+
+// Trail state
+const trailPositions = [];
+const TRAIL_LEN = 8;
+
+// ── DOM ──────────────────────────────────────────────────────────────────
+const video = document.getElementById('video');
+const landmarkCanvas = document.getElementById('landmark-canvas');
+const ctx = landmarkCanvas.getContext('2d');
+const svgEl = document.getElementById('hand-svg');
+const palmLines = document.getElementById('palm-lines');
+const fingerLines = document.getElementById('finger-lines');
+const jointGroup = document.getElementById('joints');
+const trailGroup = document.getElementById('trails');
+const placeholder = document.getElementById('svg-placeholder');
+const gestureBadge = document.getElementById('gesture-badge');
+const statusDot = document.getElementById('status-dot');
+const statusText = document.getElementById('status-text');
+const startBtn = document.getElementById('start-btn');
+const camDot = document.getElementById('cam-dot');
+
+// ── Helpers ──────────────────────────────────────────────────────────────
+function lm2svg(lm, svgW = 400, svgH = 400) {
+  // MediaPipe coords: x,y in [0,1], mirrored for display
+  return [(1 - lm.x) * svgW, lm.y * svgH];
+}
+
+function makeSvgEl(tag, attrs) {
+  const el = document.createElementNS('http://www.w3.org/2000/svg', tag);
+  for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v);
+  return el;
+}
+
+function setStatus(msg, state = 'idle') {
+  statusText.textContent = msg;
+  statusDot.className = 'status-dot' + (state === 'active' ? ' active' : state === 'error' ? ' error' : '');
+}
+
+// ── Gesture Detection ────────────────────────────────────────────────────
+function countFingers(lms) {
+  let count = 0;
+  // Thumb: x comparison (mirrored)
+  if (lms[4].x < lms[3].x) count++;
+  // Other fingers: tip y < pip y
+  [[8,6],[12,10],[16,14],[20,18]].forEach(([tip,pip]) => {
+    if (lms[tip].y < lms[pip].y) count++;
+  });
+  return count;
+}
+
+function detectGesture(lms) {
+  const fingers = countFingers(lms);
+  if (fingers === 0) return '✊ Fist';
+  if (fingers === 5) return '🖐 Open';
+  if (fingers === 1) {
+    if (lms[8].y < lms[6].y) return '☝️ Point';
+    return '👍 Thumb';
+  }
+  if (fingers === 2) {
+    if (lms[8].y < lms[6].y && lms[12].y < lms[10].y) return '✌️ Peace';
+    return '🤞 Crossed';
+  }
+  if (fingers === 3) return '🤟 Three';
+  if (fingers === 4) return '🖖 Four';
+  return `${fingers} fingers`;
+}
+
+// ── SVG Rendering ────────────────────────────────────────────────────────
+function renderSVGHand(lms) {
+  const colors = COLOR_MODES[currentMode];
+  palmLines.innerHTML = '';
+  fingerLines.innerHTML = '';
+  jointGroup.innerHTML = '';
+
+  // Palm lines
+  PALM_CONNECTIONS.forEach(([a, b]) => {
+    const [x1,y1] = lm2svg(lms[a]);
+    const [x2,y2] = lm2svg(lms[b]);
+    palmLines.appendChild(makeSvgEl('line', {
+      x1, y1, x2, y2,
+      stroke: colors.palm, 'stroke-width': 3.5,
+      'stroke-linecap': 'round', opacity: 0.8
+    }));
+  });
+
+  // Finger bones
+  FINGER_CONNECTIONS.forEach(([a, b]) => {
+    const [x1,y1] = lm2svg(lms[a]);
+    const [x2,y2] = lm2svg(lms[b]);
+    fingerLines.appendChild(makeSvgEl('line', {
+      x1, y1, x2, y2,
+      stroke: colors.finger, 'stroke-width': 3,
+      'stroke-linecap': 'round', opacity: 0.85
+    }));
+  });
+
+  // Joints
+  lms.forEach((lm, i) => {
+    const [cx, cy] = lm2svg(lm);
+    const isTip = FINGERTIPS.includes(i);
+    const isPalm = PALM_NODES.includes(i);
+    const r = isTip ? 7 : isPalm ? 6 : 4.5;
+    const fill = isTip ? colors.tip : isPalm ? colors.node : colors.finger;
+    const filter = isTip ? 'url(#glow-cyan)' : '';
+    jointGroup.appendChild(makeSvgEl('circle', {
+      cx, cy, r, fill,
+      filter,
+      opacity: 0.95
+    }));
+  });
+
+  // Update trail for wrist
+  const [wx, wy] = lm2svg(lms[0]);
+  trailPositions.push({ x: wx, y: wy });
+  if (trailPositions.length > TRAIL_LEN) trailPositions.shift();
+
+  trailGroup.innerHTML = '';
+  trailPositions.forEach((p, i) => {
+    const alpha = (i / TRAIL_LEN) * 0.5;
+    trailGroup.appendChild(makeSvgEl('circle', {
+      cx: p.x, cy: p.y,
+      r: 4 * (i / TRAIL_LEN),
+      fill: colors.finger,
+      opacity: alpha
+    }));
+  });
+}
+
+// ── Landmark Canvas ───────────────────────────────────────────────────────
+function drawLandmarks(lms) {
+  const w = landmarkCanvas.width = video.videoWidth;
+  const h = landmarkCanvas.height = video.videoHeight;
+  ctx.clearRect(0, 0, w, h);
+  const colors = COLOR_MODES[currentMode];
+
+  // Connections
+  [...PALM_CONNECTIONS, ...FINGER_CONNECTIONS].forEach(([a, b]) => {
+    ctx.beginPath();
+    ctx.moveTo(lms[a].x * w, lms[a].y * h);
+    ctx.lineTo(lms[b].x * w, lms[b].y * h);
+    ctx.strokeStyle = colors.finger;
+    ctx.lineWidth = 2;
+    ctx.globalAlpha = 0.6;
+    ctx.stroke();
+  });
+
+  // Points
+  lms.forEach((lm, i) => {
+    ctx.beginPath();
+    ctx.arc(lm.x * w, lm.y * h, FINGERTIPS.includes(i) ? 6 : 3.5, 0, Math.PI * 2);
+    ctx.fillStyle = FINGERTIPS.includes(i) ? '#fff' : colors.finger;
+    ctx.globalAlpha = 0.9;
+    ctx.fill();
+  });
+  ctx.globalAlpha = 1;
+}
+
+// ── MediaPipe Setup ───────────────────────────────────────────────────────
+const hands = new Hands({
+  locateFile: f => `https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1646424915/${f}`
+});
+
+hands.setOptions({
+  maxNumHands: 1,
+  modelComplexity: 1,
+  minDetectionConfidence: 0.7,
+  minTrackingConfidence: 0.6
+});
+
+hands.onResults(results => {
+  // FPS
+  frameCount++;
+  const now = performance.now();
+  if (now - lastFrameTime >= 1000) {
+    fpsDisplay = frameCount;
+    frameCount = 0;
+    lastFrameTime = now;
+    document.getElementById('stat-fps').textContent = fpsDisplay;
+  }
+
+  if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+    const lms = results.multiHandLandmarks[0];
+
+    if (!handDetected) {
+      handDetected = true;
+      placeholder.classList.add('hidden');
+      setStatus('Hand detected — tracking active', 'active');
+    }
+
+    drawLandmarks(lms);
+    renderSVGHand(lms);
+
+    const fingers = countFingers(lms);
+    const gesture = detectGesture(lms);
+    document.getElementById('stat-fingers').textContent = fingers;
+    document.getElementById('stat-gesture').textContent = gesture;
+    gestureBadge.textContent = gesture;
+    gestureBadge.classList.add('visible');
+  } else {
+    if (handDetected) {
+      handDetected = false;
+      placeholder.classList.remove('hidden');
+      gestureBadge.classList.remove('visible');
+      setStatus('Camera active — show your hand', 'active');
+      document.getElementById('stat-fingers').textContent = '–';
+      document.getElementById('stat-gesture').textContent = '–';
+      // Clear SVG
+      palmLines.innerHTML = '';
+      fingerLines.innerHTML = '';
+      jointGroup.innerHTML = '';
+      trailGroup.innerHTML = '';
+      trailPositions.length = 0;
+      ctx.clearRect(0, 0, landmarkCanvas.width, landmarkCanvas.height);
+    }
+  }
+});
+
+// ── Camera Start ──────────────────────────────────────────────────────────
+startBtn.addEventListener('click', async () => {
+  startBtn.classList.add('hidden');
+  setStatus('Requesting camera access...', 'idle');
+
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: 640, height: 480 } });
+    video.srcObject = stream;
+    await new Promise(r => video.onloadedmetadata = r);
+
+    camDot.style.background = 'var(--green)';
+    camDot.style.boxShadow = '0 0 8px var(--green)';
+    setStatus('Camera active — show your hand', 'active');
+
+    const camera = new Camera(video, {
+      onFrame: async () => { await hands.send({ image: video }); },
+      width: 640, height: 480
+    });
+    camera.start();
+  } catch (err) {
+    setStatus('Camera access denied. Please allow camera permissions.', 'error');
+    startBtn.classList.remove('hidden');
+    startBtn.textContent = 'Retry';
+  }
+});
+
+// ── Color Mode ────────────────────────────────────────────────────────────
+document.querySelectorAll('.mode-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    currentMode = btn.dataset.mode;
+    const colors = COLOR_MODES[currentMode];
+    document.documentElement.style.setProperty('--cyan', colors.finger);
+    document.documentElement.style.setProperty('--violet', colors.palm);
+  });
+});
+</script>
+</body>
+</html>
