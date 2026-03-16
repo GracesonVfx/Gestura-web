@@ -28,8 +28,9 @@ import {
   let lastVideoTime = -1;
   let results = undefined;
   
-  // Custom RF Model state
+  // Custom AI Model state
   let gestureModel = null;
+  let gestureClasses = [];
   
   // Data Collection State
   let isRecording = false;
@@ -37,7 +38,7 @@ import {
   let recordedFrames = 0;
   const targetFrames = 200;
   let currentLabel = "";
-  let collectedDataCsv = "label,x0,y0,z0,x1,y1,z1,x2,y2,z2,x3,y3,z3,x4,y4,z4,x5,y5,z5,x6,y6,z6,x7,y7,z7,x8,y8,z8,x9,y9,z9,x10,y10,z10,x11,y11,z11,x12,y12,z12,x13,y13,z13,x14,y14,z14,x15,y15,z15,x16,y16,z16,x17,y17,z17,x18,y18,z18,x19,y19,z19,x20,y20,z20\n";
+  let collectedDataCsv = "label,Lx0,Ly0,Lz0,Lx1,Ly1,Lz1,Lx2,Ly2,Lz2,Lx3,Ly3,Lz3,Lx4,Ly4,Lz4,Lx5,Ly5,Lz5,Lx6,Ly6,Lz6,Lx7,Ly7,Lz7,Lx8,Ly8,Lz8,Lx9,Ly9,Lz9,Lx10,Ly10,Lz10,Lx11,Ly11,Lz11,Lx12,Ly12,Lz12,Lx13,Ly13,Lz13,Lx14,Ly14,Lz14,Lx15,Ly15,Lz15,Lx16,Ly16,Lz16,Lx17,Ly17,Lz17,Lx18,Ly18,Lz18,Lx19,Ly19,Lz19,Lx20,Ly20,Lz20,Rx0,Ry0,Rz0,Rx1,Ry1,Rz1,Rx2,Ry2,Rz2,Rx3,Ry3,Rz3,Rx4,Ry4,Rz4,Rx5,Ry5,Rz5,Rx6,Ry6,Rz6,Rx7,Ry7,Rz7,Rx8,Ry8,Rz8,Rx9,Ry9,Rz9,Rx10,Ry10,Rz10,Rx11,Ry11,Rz11,Rx12,Ry12,Rz12,Rx13,Ry13,Rz13,Rx14,Ry14,Rz14,Rx15,Ry15,Rz15,Rx16,Ry16,Rz16,Rx17,Ry17,Rz17,Rx18,Ry18,Rz18,Rx19,Ry19,Rz19,Rx20,Ry20,Rz20\n";
   let collectedDataJson = {}; // E.g., { "HELLO": [[{x,y}, {x,y}...], [{x,y}...]] }
   
   // --- 0. Data Collection Logic ---
@@ -136,54 +137,90 @@ import {
       }
   });
   
-  // --- 1. Load the Custom JSON Model ---
+  // --- 1. Load the Custom AI Model ---
   async function loadGestureModel() {
       try {
-          const response = await fetch('/model.json');
+          const response = await fetch('/tfjs_model/weights.json');
           if (response.ok) {
               gestureModel = await response.json();
-              console.log("Custom gesture model loaded!", gestureModel);
+              gestureClasses = gestureModel.classes;
+              console.log("Custom gesture model loaded successfully!", gestureClasses);
           } else {
-              console.log("No custom model found at /model.json. Please train one first!");
+              console.log("No custom model found at /tfjs_model/weights.json. Please train one first!");
           }
       } catch (e) {
-          console.log("Error loading model.json. Skipping custom predictions.");
+          console.log("Error loading custom model.", e);
       }
   }
   loadGestureModel();
   
-  // --- 2. Random Forest Inference Logic ---
-  // A simple function to walk our custom JSON decision trees
-  function predictRandomForest(features, model) {
-      if (!model || !model.trees || model.trees.length === 0) return "?";
+  // --- 2. Neural Network Inference Logic ---
+  // A simple function to predict via our exported Dense weights
+  function predictNeuralNetwork(features) {
+      if (!gestureModel || gestureClasses.length === 0) return "?";
       
-      const classCounts = {};
-      model.classes.forEach(c => classCounts[c] = 0);
-  
-      // Pass features through each tree
-      for (const tree of model.trees) {
-          let node = tree;
-          // Traverse until we hit a leaf
-          while (node.type !== "leaf") {
-              if (features[node.feature] <= node.threshold) {
-                  node = node.left;
-              } else {
-                  node = node.right;
+      let activations = features;
+      
+      // Feed-forward through all layers
+      for (const layer of gestureModel.layers) {
+          if (layer.type === "Dense") {
+              const next_activations = new Array(layer.units).fill(0);
+              
+              // Matrix multiplication: Output = Input * Weights + Biases
+              for (let i = 0; i < layer.units; i++) {
+                  let sum = layer.biases[i];
+                  for (let j = 0; j < activations.length; j++) {
+                      sum += activations[j] * layer.weights[j][i];
+                  }
+                  
+                  // Activation function
+                  if (layer.activation === "relu") {
+                      next_activations[i] = Math.max(0, sum);
+                  } else if (layer.activation === "softmax") {
+                      next_activations[i] = sum; // Softmax applied after loop
+                  } else {
+                      next_activations[i] = sum; // Linear fallback
+                  }
               }
+              
+              if (layer.activation === "softmax") {
+                  // Apply softmax to array
+                  let maxVal = -Infinity;
+                  for (let i = 0; i < next_activations.length; i++) {
+                      if (next_activations[i] > maxVal) maxVal = next_activations[i];
+                  }
+                  
+                  let sumExp = 0;
+                  for (let i = 0; i < next_activations.length; i++) {
+                      next_activations[i] = Math.exp(next_activations[i] - maxVal);
+                      sumExp += next_activations[i];
+                  }
+                  
+                  for (let i = 0; i < next_activations.length; i++) {
+                      next_activations[i] /= sumExp;
+                  }
+              }
+              
+              activations = next_activations;
           }
-          classCounts[node.class]++;
       }
-  
-      // Find the class with the most votes
-      let bestClass = "?";
-      let maxVotes = -1;
-      for (const [cls, votes] of Object.entries(classCounts)) {
-          if (votes > maxVotes) {
-              maxVotes = votes;
-              bestClass = cls;
+      
+      // Find highest probability
+      let maxProb = -1;
+      let maxIdx = -1;
+      for (let i = 0; i < activations.length; i++) {
+          if (activations[i] > maxProb) {
+              maxProb = activations[i];
+              maxIdx = i;
           }
       }
-      return bestClass;
+      
+      // Ensure prediction is fairly confident
+      if (maxProb > 0.6) {
+          return gestureClasses[maxIdx];
+      } else {
+          return "?";
+      }
   }
   
   // Before we can use HandLandmarker class we must wait for it to finish loading
@@ -272,85 +309,109 @@ import {
     if (results && results.landmarks) {
       const drawingUtils = new DrawingUtils(canvasCtx);
       
+      // We need 126 features total (63 for Left, 63 for Right). Default to 0 format.
+      const featuresRaw = new Array(126).fill(0);
+      let leftHandData = null;
+      let rightHandData = null;
+
+      // Extract left and right hand if present
+      for (let h = 0; h < results.landmarks.length; h++) {
+          const landmarks = results.landmarks[h];
+          const handedness = results.handednesses[h][0].categoryName; // 'Left' or 'Right'
+          
+          if (handedness === 'Left') {
+              leftHandData = landmarks;
+          } else if (handedness === 'Right') {
+              rightHandData = landmarks;
+          }
+      }
+
+      // Populate features array
+      if (leftHandData) {
+          const wrist_x = leftHandData[0].x;
+          const wrist_y = leftHandData[0].y;
+          const wrist_z = leftHandData[0].z;
+          for (let i = 0; i < 21; i++) {
+              featuresRaw[i*3] = leftHandData[i].x - wrist_x;
+              featuresRaw[i*3+1] = leftHandData[i].y - wrist_y;
+              featuresRaw[i*3+2] = leftHandData[i].z - wrist_z;
+          }
+      }
+      if (rightHandData) {
+          const wrist_x = rightHandData[0].x;
+          const wrist_y = rightHandData[0].y;
+          const wrist_z = rightHandData[0].z;
+          for (let i = 0; i < 21; i++) {
+              featuresRaw[63 + i*3] = rightHandData[i].x - wrist_x;
+              featuresRaw[63 + i*3+1] = rightHandData[i].y - wrist_y;
+              featuresRaw[63 + i*3+2] = rightHandData[i].z - wrist_z;
+          }
+      }
+
+      // Draw all hands
       for (const landmarks of results.landmarks) {
-        // --- Custom Inference ---
-        // 1. We must center coordinates on the wrist (landmark 0) to match our training data
-        const wrist_x = landmarks[0].x;
-        const wrist_y = landmarks[0].y;
-        const wrist_z = landmarks[0].z;
-  
-        // 2. Extract and flatten all 21 joints exactly like Python did.
-        const features = [];
-        for (let i = 0; i < 21; i++) {
-            features.push(landmarks[i].x - wrist_x);
-            features.push(landmarks[i].y - wrist_y);
-            features.push(landmarks[i].z - wrist_z);
-        }
-  
-        // 2.5 IF RECORDING DATA
-        if (isRecording) {
-            recordedFrames++;
-            
-            if (recordingMode === 'csv') {
-                let csvRow = `${currentLabel}`;
-                for (let i = 0; i < features.length; i++) {
-                    csvRow += `,${features[i]}`;
-                }
-                csvRow += "\n";
-                collectedDataCsv += csvRow;
-                collectionStatus.innerText = `Recording Static CSV '${currentLabel}' (${recordedFrames}/${targetFrames})... Hold steady!`;
-            } 
-            else if (recordingMode === 'json') {
-                // For JSON, we only capture every 5th frame to make the animation file lightweight and smooth
-                // (60fps / 5 = 12fps animation skeleton)
-                if (recordedFrames % 5 === 0) {
-                    // We save the raw 0-1 coordinates for the SVG animator
-                    const frameCoords = [];
-                    for (let i = 0; i < 21; i++) {
-                        frameCoords.push({
-                            x: landmarks[i].x,
-                            y: landmarks[i].y
-                        });
-                    }
-                    collectedDataJson[currentLabel].push(frameCoords);
-                }
-                collectionStatus.innerText = `Recording JSON Sequence '${currentLabel}' (${recordedFrames}/${targetFrames})... Perform the gesture!`;
-            }
-            
-            collectionStatus.style.color = "#10b981"; // Green
-            
-            if (recordedFrames >= targetFrames) {
-                isRecording = false;
-                labelInput.disabled = false;
-                recordBtn.style.display = "inline-block";
-                recordJsonBtn.style.display = "inline-block";
-                cancelBtn.style.display = "none";
-                downloadBtn.disabled = false;
-                collectionStatus.style.color = "#38bdf8"; // Blue
-                collectionStatus.innerText = `Finished recording '${currentLabel}'! Save the data when ready.`;
-            }
-        }
-  
-        // 3. Make Prediction
-        if (gestureModel && !isRecording) {
-            const letter = predictRandomForest(features, gestureModel);
-            predictionText.innerText = letter; 
-        } else if (isRecording) {
-            predictionText.innerText = "REC";
-        } else {
-            predictionText.innerText = "?";
-        }
-  
-        // --- Draw the hand ---
-        drawingUtils.drawConnectors(landmarks, HandLandmarker.HAND_CONNECTIONS, {
-          color: "#c084fc", // Purple from our gradient
-          lineWidth: 3
-        });
-        drawingUtils.drawLandmarks(landmarks, {
-          color: "#38bdf8", // Blue from our gradient
-          lineWidth: 2,
-          radius: 4
-        });
+          drawingUtils.drawConnectors(landmarks, HandLandmarker.HAND_CONNECTIONS, {
+              color: "#c084fc",
+              lineWidth: 3
+          });
+          drawingUtils.drawLandmarks(landmarks, {
+              color: "#38bdf8",
+              lineWidth: 2,
+              radius: 4
+          });
+      }
+
+      // 2.5 IF RECORDING DATA
+      if (isRecording) {
+          recordedFrames++;
+          
+          if (recordingMode === 'csv') {
+              let csvRow = `${currentLabel}`;
+              for (let i = 0; i < featuresRaw.length; i++) {
+                  csvRow += `,${featuresRaw[i]}`;
+              }
+              csvRow += "\n";
+              collectedDataCsv += csvRow;
+              collectionStatus.innerText = `Recording Dual-Hand CSV '${currentLabel}' (${recordedFrames}/${targetFrames})... Hold steady!`;
+          } 
+          else if (recordingMode === 'json') {
+              if (recordedFrames % 5 === 0) {
+                  // For simple JSON animation testing (maybe update to dual hand later if needed)
+                  // using just the first detected hand for the animation backwards compability
+                  const frameCoords = [];
+                  for (let i = 0; i < 21; i++) {
+                      frameCoords.push({
+                          x: results.landmarks[0][i].x,
+                          y: results.landmarks[0][i].y
+                      });
+                  }
+                  collectedDataJson[currentLabel].push(frameCoords);
+              }
+              collectionStatus.innerText = `Recording JSON Sequence '${currentLabel}' (${recordedFrames}/${targetFrames})... Perform the gesture!`;
+          }
+          
+          collectionStatus.style.color = "#10b981"; // Green
+          
+          if (recordedFrames >= targetFrames) {
+              isRecording = false;
+              labelInput.disabled = false;
+              recordBtn.style.display = "inline-block";
+              recordJsonBtn.style.display = "inline-block";
+              cancelBtn.style.display = "none";
+              downloadBtn.disabled = false;
+              collectionStatus.style.color = "#38bdf8"; // Blue
+              collectionStatus.innerText = `Finished recording '${currentLabel}'! Save the data when ready.`;
+          }
+      }
+
+      // 3. Make Prediction
+      if (gestureModel && gestureClasses.length > 0 && !isRecording) {
+          const letter = predictNeuralNetwork(featuresRaw);
+          predictionText.innerText = letter;
+      } else if (isRecording) {
+          predictionText.innerText = "REC";
+      } else {
+          predictionText.innerText = "?";
       }
     } else {
         // No hand detected
